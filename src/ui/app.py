@@ -1,6 +1,7 @@
 """
 Converter Suite - Main Application UI
-Modern CustomTkinter interface with category-based navigation.
+Redesigned with "Tech Noir" Terminal Aesthetic.
+Features: Tabs, Symmetrical Layout, LED Indicator.
 """
 
 import customtkinter as ctk
@@ -9,11 +10,13 @@ from tkinter import filedialog, messagebox
 from pathlib import Path
 import threading
 import logging
-from typing import Optional, Callable
+import time
+import copy
+from typing import Optional
 
 # Configure CustomTkinter
 ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
+ctk.set_default_color_theme("dark-blue") # We will override colors manually for Black/White theme
 
 # Try to import drag-and-drop support
 DND_AVAILABLE = False
@@ -23,7 +26,7 @@ try:
 except ImportError:
     pass
 
-from ..converters.registry import registry, ConverterRegistry
+from ..converters.registry import registry
 from ..converters.base import ConversionCategory, ConversionOptions
 from ..converters.image_converter import ImageConverter
 from ..converters.video_converter import VideoConverter
@@ -35,19 +38,85 @@ from ..utils.dependency_checker import dependency_checker
 logger = logging.getLogger(__name__)
 
 
+class LEDIndicator(ctk.CTkCanvas):
+    """A simple LED indicator widget."""
+    def __init__(self, master, width=20, height=20, bg='black', **kwargs):
+        super().__init__(master, width=width, height=height, highlightthickness=0, bg=bg, **kwargs)
+        self.width = width
+        self.height = height
+        self.state = "idle" # idle, running, error
+        self.draw()
+
+    def set_state(self, state: str):
+        self.state = state
+        self.draw()
+
+    def draw(self):
+        self.delete("all")
+        color = "#333333" # Grey/Off
+        glow_color = None
+        
+        if self.state == "running":
+            color = "#00FF00" # Terminal Green
+            glow_color = "#004400"
+        elif self.state == "error":
+            color = "#FF0000" # Red
+            glow_color = "#440000"
+        elif self.state == "ready":
+             color = "#00CC00" # Dim Green
+
+        # Draw glow if active
+        if glow_color:
+             self.create_oval(2, 2, self.width-2, self.height-2, fill=glow_color, outline="")
+
+        # Draw LED center
+        pad = 6 if glow_color else 4
+        self.create_oval(pad, pad, self.width-pad, self.height-pad, fill=color, outline="")
+
+
 class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.CTk, TkinterDnD.DnDWrapper), {})):
     """
     Main application window for Converter Suite.
-    Features category-based navigation and unified conversion interface.
+    "Tech Noir" Terminal Theme.
     """
     
-    # Uppercase names for techy look
+    # Theme Configuration
+    THEMES = {
+        "dark": {
+            "BG": "#000000",
+            "FG": "#E0E0E0",
+            "ACCENT": "#FFFFFF",
+            "DIM": "#888888",
+            "BORDER": "#444444",
+            "TERMINAL_BG": "#0C0C0C",
+            "TERMINAL_TEXT": "#00FF00",
+            "BUTTON_FG": "white",
+            "BUTTON_TEXT": "black",
+        },
+        "light": {
+            "BG": "#F5F1E6",          # Oatmeal / Earthy Beige
+            "FG": "#3E3B36",          # Dark Charcoal/Brown
+            "ACCENT": "#5C5951",      # Deep Taupe
+            "DIM": "#5C5951",         # Taupe for secondary text
+            "BORDER": "#B0A899",      # Stone Gray/Beige
+            "TERMINAL_BG": "#2B2821", # Dark Brown (Retro Terminal)
+            "TERMINAL_TEXT": "#E8C547", # Amber/Gold for terminal text
+            "BUTTON_FG": "#3E3B36",   # Dark for button
+            "BUTTON_TEXT": "#F5F1E6", # Light text
+        }
+    }
+
+    FONT_MAIN = ("Roboto", 15) 
+    FONT_MONO = ("Consolas", 13) 
+    FONT_HEADER = ("Roboto", 14, "bold") 
+    FONT_BUTTON = ("Consolas", 16, "bold") 
+    
     CATEGORIES = [
-        ("📄", "DOCUMENTS", ConversionCategory.DOCUMENT),
-        ("🖼️", "IMAGES", ConversionCategory.IMAGE),
-        ("🎬", "VIDEO", ConversionCategory.VIDEO),
-        ("🎵", "AUDIO", ConversionCategory.AUDIO),
-        ("📊", "PRESENTATIONS", ConversionCategory.PRESENTATION),
+        ("DOCS", ConversionCategory.DOCUMENT),
+        ("IMAGES", ConversionCategory.IMAGE),
+        ("VIDEO", ConversionCategory.VIDEO),
+        ("AUDIO", ConversionCategory.AUDIO),
+        ("PRESENTATIONS", ConversionCategory.PRESENTATION),
     ]
     
     def __init__(self):
@@ -56,574 +125,510 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         if DND_AVAILABLE:
             self.TkdndVersion = TkinterDnD._require(self)
         
-        self.title("Converter Suite Pro")
-        self.geometry("1200x750")
-        self.minsize(900, 600)
+        self.title("Converter Suite // TERMINAL")
+        self.geometry("1100x800")
+        self.minsize(950, 700)
         
         # State
+        self.current_theme = "dark"
+        self.colors = self.THEMES[self.current_theme]
+        
+        self.configure(fg_color=self.colors["BG"])
+        
         self.current_category: Optional[ConversionCategory] = None
         self.output_dir = Path.home() / "ConvertedFiles"
         self.output_dir.mkdir(exist_ok=True)
         self.selected_files: list[Path] = []
         self.output_format = tk.StringVar(value="")
+        self.create_folders_var = tk.BooleanVar(value=False)
         self.is_converting = False
         
-        # Register converters
+        self.tab_buttons: dict[str, ctk.CTkButton] = {}
+
         self._register_converters()
-        
-        # Setup UI
         self._setup_ui()
         
-        # Select first category by default
-        self._select_category(ConversionCategory.DOCUMENT)
-    
+        # Select first category
+        self._on_tab_change("DOCS")
+
     def _register_converters(self):
-        """Register all available converters."""
         registry.clear()
         registry.register(ImageConverter())
         registry.register(VideoConverter())
         registry.register(AudioConverter())
         registry.register(DocumentConverter())
         registry.register(PresentationConverter())
-    
-    def _setup_ui(self):
-        """Setup the main UI layout."""
-        # Configure grid
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        
-        # Sidebar with darker techy look
-        self._create_sidebar()
-        
-        # Main content area
-        self._create_main_area()
-    
-    def _create_sidebar(self):
-        """Create the sidebar with category navigation."""
-        # Darker gray background for sidebar
-        self.sidebar = ctk.CTkFrame(self, width=260, corner_radius=0, fg_color=("gray90", "gray10"))
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_rowconfigure(10, weight=1)
-        
-        # Logo with tech font
-        logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        logo_frame.grid(row=0, column=0, padx=20, pady=(30, 40), sticky="ew")
-        
-        logo = ctk.CTkLabel(
-            logo_frame,
-            text="CORE CONVERTER",
-            font=ctk.CTkFont(family="Consolas", size=20, weight="bold"),
-            text_color=("gray20", "gray90")
-        )
-        logo.pack(anchor="w")
-        
-        logo_sub = ctk.CTkLabel(
-            logo_frame,
-            text="v0.1.3 // SUITE",
-            font=ctk.CTkFont(family="Consolas", size=10),
-            text_color="gray50"
-        )
-        logo_sub.pack(anchor="w")
 
-        logo_brand = ctk.CTkLabel(
-            logo_frame,
-            text="by graeLabs",
-            font=ctk.CTkFont(family="Consolas", size=9, slant="italic"),
-            text_color="gray40"
-        )
-        logo_brand.pack(anchor="w", pady=(2, 0))
+    def _toggle_theme(self):
+        """Switch between dark and light themes."""
+        self.current_theme = "light" if self.current_theme == "dark" else "dark"
+        self.colors = self.THEMES[self.current_theme]
         
-        # Category buttons
-        self.category_buttons: dict[ConversionCategory, ctk.CTkButton] = {}
+        # Re-apply background
+        self.configure(fg_color=self.colors["BG"])
         
-        for i, (icon, name, category) in enumerate(self.CATEGORIES):
-            btn = ctk.CTkButton(
-                self.sidebar,
-                text=f"{icon} {name}",
-                font=ctk.CTkFont(family="Roboto Mono", size=13),
-                anchor="w",
-                height=45,
-                corner_radius=4,
-                fg_color="transparent",
-                text_color=("gray40", "gray60"),
-                hover_color=("gray80", "gray15"),
-                border_spacing=15,
-                command=lambda c=category: self._select_category(c)
-            )
-            btn.grid(row=i+1, column=0, padx=15, pady=2, sticky="ew")
-            self.category_buttons[category] = btn
-        
-        # Separator line
-        separator = ctk.CTkFrame(self.sidebar, height=1, fg_color=("gray80", "gray20"))
-        separator.grid(row=len(self.CATEGORIES)+1, column=0, padx=20, pady=30, sticky="ew")
-        
-        # Dependency status section
-        dep_label = ctk.CTkLabel(
-            self.sidebar,
-            text="SYSTEM STATUS",
-            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
-            text_color="gray50"
-        )
-        dep_label.grid(row=len(self.CATEGORIES)+2, column=0, padx=20, pady=(0, 10), sticky="w")
-        
-        self.dep_status = ctk.CTkLabel(
-            self.sidebar,
-            text="",
-            font=ctk.CTkFont(family="Consolas", size=10),
-            text_color="gray60",
-            wraplength=220,
-            justify="left"
-        )
-        self.dep_status.grid(row=len(self.CATEGORIES)+3, column=0, padx=20, pady=0, sticky="w")
-        
-        # Update dependency status
-        self._update_dep_status()
-        
-        # Theme toggle at bottom
-        self.theme_switch = ctk.CTkSwitch(
-            self.sidebar,
-            text="DARK MODE",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            command=self._toggle_theme,
-            onvalue="Dark",
-            offvalue="Light"
-        )
-        self.theme_switch.select()
-        self.theme_switch.grid(row=15, column=0, padx=20, pady=30, sticky="s")
-    
-    def _create_main_area(self):
-        """Create the main content area."""
-        self.main_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=30, pady=30)
-        self.main_frame.grid_columnconfigure(0, weight=1)
-        self.main_frame.grid_rowconfigure(1, weight=1)
-        
-        # Typewriter style header
-        self.header_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        self.header_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
-        
-        self.category_title = ctk.CTkLabel(
-            self.header_frame,
-            text="SELECT_CATEGORY",
-            font=ctk.CTkFont(family="Consolas", size=28, weight="bold")
-        )
-        self.category_title.pack(anchor="w")
-        
-        self.category_subtitle = ctk.CTkLabel(
-            self.header_frame,
-            text="",
-            font=ctk.CTkFont(family="Roboto", size=13),
-            text_color="gray60"
-        )
-        self.category_subtitle.pack(anchor="w", pady=(5, 0))
-        
-        # Content frame (split layout)
-        self.content_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        self.content_frame.grid(row=1, column=0, sticky="nsew")
-        self.content_frame.grid_columnconfigure(0, weight=3) # Drop zone wider
-        self.content_frame.grid_columnconfigure(1, weight=2) # Settings narrower
-        self.content_frame.grid_rowconfigure(0, weight=1)
-        
-        # Left: Drop zone
-        self._create_drop_zone()
-        
-        # Right: Settings panel
-        self._create_settings_panel()
-        
-        # Bottom: Progress and log
-        self._create_progress_area()
-    
-    def _create_drop_zone(self):
-        """Create the file drop zone with hover effects."""
-        self.drop_frame = ctk.CTkFrame(
-            self.content_frame,
-            border_width=2,
-            border_color=("gray70", "gray30"),
-            fg_color=("gray95", "gray15"),
-            corner_radius=8
-        )
-        self.drop_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 20), pady=0)
-        
-        # Center container
-        center_frame = ctk.CTkFrame(self.drop_frame, fg_color="transparent")
-        center_frame.place(relx=0.5, rely=0.45, anchor="center")
-        
-        self.drop_label = ctk.CTkLabel(
-            center_frame,
-            text="DROP FILES HERE",
-            font=ctk.CTkFont(family="Consolas", size=18, weight="bold"),
-            text_color="gray50"
-        )
-        self.drop_label.pack(pady=(0, 5))
-        
-        self.drop_sublabel = ctk.CTkLabel(
-             center_frame,
-             text="or click to browse",
-             font=ctk.CTkFont(size=14),
-             text_color="gray60"
-        )
-        self.drop_sublabel.pack()
-
-        # File list (bottom part of drop zone)
-        self.file_list = ctk.CTkTextbox(
-            self.drop_frame,
-            height=120,
-            state="disabled",
-            fg_color="transparent",
-            font=ctk.CTkFont(family="Consolas", size=12),
-            text_color="gray70"
-        )
-        self.file_list.place(relx=0.5, rely=0.8, anchor="center", relwidth=0.9)
-        
-        # Click bindings
-        self.drop_frame.bind("<Button-1>", lambda e: self._browse_files())
-        self.drop_label.bind("<Button-1>", lambda e: self._browse_files())
-        self.drop_sublabel.bind("<Button-1>", lambda e: self._browse_files())
-        
-        # Hover bindings
-        self.drop_frame.bind("<Enter>", self._on_drag_enter)
-        self.drop_frame.bind("<Leave>", self._on_drag_leave)
-        # Bind children to propagate (simple approximation)
-        self.drop_label.bind("<Enter>", self._on_drag_enter)
-        self.drop_sublabel.bind("<Enter>", self._on_drag_enter)
-        
-        # Drag and drop
-        if DND_AVAILABLE:
-            self.drop_frame.drop_target_register(DND_FILES)
-            self.drop_frame.dnd_bind('<<Drop>>', self._on_drop)
+        # Rebuild UI to apply new colors (simplest way to ensure everything updates)
+        # Destroy main containers
+        for widget in [self.header_frame, self.content_frame, self.bottom_frame]:
+            widget.destroy()
             
-    def _on_drag_enter(self, event):
-        """Handle mouse enter on drop zone."""
-        # Change border to accent color
-        self.drop_frame.configure(border_color=("#3B8ED0", "#1F6AA5"), border_width=3)
-        self.drop_label.configure(text_color=("#3B8ED0", "#1F6AA5"))
+        # Rebuild
+        self._setup_ui()
+        
+        # Restore tab state
+        cat_name = "DOCS"
+        for name, cat in self.CATEGORIES:
+             if cat == self.current_category:
+                 cat_name = name
+                 break
+        self._on_tab_change(cat_name)
+        
+        # Restore file list visuals
+        self._update_file_list()
+        self._update_output_tree()
+        self._update_button_state()
+        
+        # Log it
+        self._log(f"THEME SWITCHED TO {self.current_theme.upper()}")
 
-    def _on_drag_leave(self, event):
-        """Handle mouse leave on drop zone."""
-        # Reset border
-        self.drop_frame.configure(border_color=("gray70", "gray30"), border_width=2)
-        self.drop_label.configure(text_color="gray50")
-    
-    def _create_settings_panel(self):
-        """Create the conversion settings panel."""
-        self.settings_frame = ctk.CTkFrame(self.content_frame, fg_color=("gray90", "gray15"), corner_radius=10)
-        self.settings_frame.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+    def _setup_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1) # Content expands
+        self.grid_rowconfigure(2, weight=0) # Bottom is fixed height
         
-        # Output format
-        format_label = ctk.CTkLabel(
-            self.settings_frame,
-            text="OUTPUT FORMAT",
-            font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
-            text_color="gray50"
+        # --- 1. HEADER & TABS ---
+        self.header_frame = ctk.CTkFrame(self, fg_color=self.colors["BG"], height=60, corner_radius=0)
+        self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(15, 0))
+        self.header_frame.grid_columnconfigure(0, weight=1) 
+        self.header_frame.grid_columnconfigure(2, weight=1) 
+
+        # Logo / Title (Left)
+        title_panel = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        title_panel.grid(row=0, column=0, sticky="w")
+        
+        ctk.CTkLabel(title_panel, text="CONVERTER_SUITE", font=("Consolas", 20, "bold"), text_color=self.colors["FG"]).pack(anchor="w")
+        ctk.CTkLabel(title_panel, text="v0.1.7 [PRO]", font=("Consolas", 10), text_color=self.colors["DIM"]).pack(anchor="w")
+
+        # Custom Browser Tabs (Center)
+        self.tabs_container = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        self.tabs_container.grid(row=0, column=1, sticky="ew", padx=40)
+        
+        self.tab_buttons = {} # Reset
+        for name, cat in self.CATEGORIES:
+            btn = ctk.CTkButton(
+                self.tabs_container,
+                text=name,
+                font=self.FONT_HEADER,
+                width=120,
+                height=35,
+                corner_radius=5, 
+                border_width=0,
+                fg_color="transparent", 
+                text_color=self.colors["DIM"],
+                hover_color=self.colors["BORDER"], # Use border color for hover
+                command=lambda n=name: self._on_tab_change(n)
+            )
+            btn.pack(side="left", padx=5) 
+            self.tab_buttons[name] = btn
+
+        # Theme Toggle (Right)
+        theme_btn = ctk.CTkButton(
+            self.header_frame,
+            text="☀/mnt" if self.current_theme == "dark" else "☾/dark",
+            width=60,
+            fg_color="transparent",
+            border_width=1,
+            border_color=self.colors["DIM"],
+            text_color=self.colors["FG"],
+            command=self._toggle_theme
         )
-        format_label.pack(anchor="w", padx=20, pady=(25, 5))
+        theme_btn.grid(row=0, column=2, sticky="e")
+
+        # --- 2. MAIN CONTENT (Split View) ---
+        self.content_frame = ctk.CTkFrame(self, fg_color=self.colors["BG"], corner_radius=0)
+        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
+        self.content_frame.grid_columnconfigure(0, weight=1, uniform="group1") # Left
+        self.content_frame.grid_columnconfigure(1, weight=1, uniform="group1") # Right
+        self.content_frame.grid_rowconfigure(0, weight=1)
+
+        # LEFT COLUMN: INPUT
+        self._setup_left_column()
+
+        # RIGHT COLUMN: OUTPUT
+        self._setup_right_column()
+
+
+        # --- 3. BOTTOM: TERMINAL LOG (LEFT) & EXECUTE (RIGHT) ---
+        self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent", height=150, corner_radius=0)
+        self.bottom_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+        self.bottom_frame.grid_columnconfigure(0, weight=3, uniform="bottom") # Log Area (Left)
+        self.bottom_frame.grid_columnconfigure(1, weight=2, uniform="bottom") # Execute Area (Right)
+        self.bottom_frame.grid_propagate(False) # Enforce height
         
-        self.format_menu = ctk.CTkOptionMenu(
-            self.settings_frame,
-            variable=self.output_format,
-            values=["Select format..."],
-            width=200,
-            height=35,
-            font=ctk.CTkFont(family="Consolas", size=13),
-            dropdown_font=ctk.CTkFont(family="Consolas", size=13)
+        # LEFT: Log & LED
+        self.log_container = ctk.CTkFrame(self.bottom_frame, fg_color=self.colors["TERMINAL_BG"], border_width=1, border_color=self.colors["BORDER"], corner_radius=0)
+        self.log_container.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        self.log_container.grid_columnconfigure(0, weight=1)
+        self.log_container.grid_rowconfigure(1, weight=1)
+
+        # LED Indicator
+        self.led_canvas = ctk.CTkCanvas(self.log_container, width=40, height=20, bg=self.colors["TERMINAL_BG"], highlightthickness=0)
+        self.led_canvas.grid(row=0, column=0, sticky="w", padx=10, pady=(10,0))
+        self.led = LEDIndicator(self.led_canvas, width=15, height=15, bg=self.colors["TERMINAL_BG"])
+        self.led.pack(side="left")
+        ctk.CTkLabel(self.led_canvas, text="SYSTEM_STATUS", font=("Consolas", 10), text_color=self.colors["DIM"]).pack(side="left", padx=5)
+
+        # Log Box
+        self.log_box = ctk.CTkTextbox(
+            self.log_container,
+            font=self.FONT_MONO,
+            fg_color="transparent",
+            text_color=self.colors["TERMINAL_TEXT"],
+            height=100
         )
-        self.format_menu.pack(anchor="w", padx=20, pady=(0, 15))
-        
-        # Output directory
-        dir_label = ctk.CTkLabel(
-            self.settings_frame,
-            text="DESTINATION",
-            font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
-            text_color="gray50"
-        )
-        dir_label.pack(anchor="w", padx=20, pady=(15, 5))
-        
-        self.dir_entry = ctk.CTkEntry(
-            self.settings_frame,
-            width=200,
-            state="readonly",
-            font=ctk.CTkFont(family="Consolas", size=12),
-            border_color=("gray70", "gray30")
-        )
-        self.dir_entry.pack(anchor="w", padx=20, pady=(0, 5))
-        self._update_dir_display()
-        
-        dir_browse_btn = ctk.CTkButton(
-            self.settings_frame,
-            text="Browse...",
-            width=100,
-            height=28,
-            font=ctk.CTkFont(size=12),
-            fg_color=("gray80", "gray25"),
-            text_color=("gray20", "gray80"),
-            hover_color=("gray70", "gray30"),
-            command=self._browse_output_dir
-        )
-        dir_browse_btn.pack(anchor="w", padx=20, pady=(0, 20))
-        
-        # Quality slider
-        quality_label = ctk.CTkLabel(
-            self.settings_frame,
-            text="QUALITY / COMPRESSION",
-            font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
-            text_color="gray50"
-        )
-        quality_label.pack(anchor="w", padx=20, pady=(15, 5))
-        
-        self.quality_var = tk.IntVar(value=85)
-        self.quality_slider = ctk.CTkSlider(
-            self.settings_frame,
-            from_=1,
-            to=100,
-            variable=self.quality_var,
-            width=200,
-            progress_color=("#3B8ED0", "#1F6AA5")
-        )
-        self.quality_slider.pack(anchor="w", padx=20, pady=(0, 5))
-        
-        self.quality_value_label = ctk.CTkLabel(
-            self.settings_frame,
-            text="85%",
-            font=ctk.CTkFont(family="Consolas", size=12)
-        )
-        self.quality_value_label.pack(anchor="w", padx=20, pady=(0, 20))
-        
-        self.quality_var.trace_add("write", lambda *_: self.quality_value_label.configure(
-            text=f"{self.quality_var.get()}%"
-        ))
-        
-        # Convert button
+        self.log_box.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.log_box.insert("end", "> SYSTEM INITIALIZED...\n> WAITING FOR INPUT...\n")
+        self.log_box.configure(state="disabled")
+
+        # RIGHT: Execute Button Tile
+        self.execute_container = ctk.CTkFrame(self.bottom_frame, fg_color=self.colors["TERMINAL_BG"], border_width=1, border_color=self.colors["BORDER"], corner_radius=0)
+        self.execute_container.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        self.execute_container.grid_columnconfigure(0, weight=1)
+        self.execute_container.grid_rowconfigure(0, weight=1)
+
         self.convert_btn = ctk.CTkButton(
-            self.settings_frame,
-            text="INITIALIZE CONVERSION",
-            font=ctk.CTkFont(family="Consolas", size=14, weight="bold"),
-            height=45,
+            self.execute_container,
+            text="> EXECUTE CONVERSION",
+            font=self.FONT_BUTTON,
+            fg_color=self.colors["BUTTON_FG"], 
+            text_color=self.colors["BUTTON_TEXT"],
+            hover_color=self.colors["BORDER"],
+            corner_radius=0,
             command=self._start_conversion
         )
-        self.convert_btn.pack(side="bottom", padx=20, pady=25, fill="x")
-    
-    def _create_progress_area(self):
-        """Create the progress display area."""
-        self.progress_frame = ctk.CTkFrame(self.main_frame, height=120, fg_color="transparent")
-        self.progress_frame.grid(row=2, column=0, sticky="ew", pady=(20, 0))
-        self.progress_frame.grid_columnconfigure(0, weight=1)
+        self.convert_btn.pack(expand=True, fill="both", padx=2, pady=2)
         
-        # Log box with monospace font
-        self.log_box = ctk.CTkTextbox(
-            self.progress_frame,
-            height=80,
-            state="disabled",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color=("gray95", "gray10"),
-            border_width=1,
-            border_color=("gray80", "gray25"),
-            text_color="gray70"
+        self._update_button_state()
+
+
+    def _setup_left_column(self):
+        self.left_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent", border_width=1, border_color=self.colors["BORDER"], corner_radius=0)
+        self.left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        self.left_frame.grid_rowconfigure(1, weight=0) # Drop Zone (Fixed/Limited)
+        self.left_frame.grid_rowconfigure(3, weight=1) # File List (Expands)
+        self.left_frame.grid_columnconfigure(0, weight=1)
+
+        # Label
+        ctk.CTkLabel(self.left_frame, text=" [ INPUT SOURCE ] ", font=self.FONT_MONO, text_color=self.colors["DIM"], fg_color=self.colors["BG"]).grid(row=0, column=0, sticky="nw", padx=10, pady=10)
+
+        # Drop Zone (Limited Height)
+        # For Drop Zone BG in Light Mode, we need something distinct but not black
+        drop_bg_color = "#E8E4D9" if self.current_theme == "light" else "#080808"
+        
+        self.drop_zone = ctk.CTkFrame(self.left_frame, fg_color=drop_bg_color, border_width=2, border_color=self.colors["BORDER"], corner_radius=0, height=200) # Fixed height hint
+        self.drop_zone.grid(row=1, column=0, sticky="ew", padx=20, pady=20)
+        self.drop_zone.grid_propagate(False) # Enforce height
+        
+        self.drop_label = ctk.CTkLabel(self.drop_zone, text="DRAG FILES HERE", font=("Consolas", 19, "bold"), text_color=self.colors["DIM"])
+        self.drop_label.place(relx=0.5, rely=0.5, anchor="center")
+        
+        # Click to browse
+        self.drop_zone.bind("<Button-1>", lambda e: self._browse_files())
+        self.drop_label.bind("<Button-1>", lambda e: self._browse_files())
+        
+        if DND_AVAILABLE:
+            self.drop_zone.drop_target_register(DND_FILES)
+            self.drop_zone.dnd_bind('<<Drop>>', self._on_drop)
+
+        # File List (Expands)
+        self.file_list_label = ctk.CTkLabel(self.left_frame, text="SELECTED FILES:", font=self.FONT_MONO, text_color=self.colors["DIM"], anchor="w")
+        self.file_list_label.grid(row=2, column=0, sticky="w", padx=20, pady=(0,5))
+
+        list_bg_color = "#FFFFFF" if self.current_theme == "light" else "#080808"
+
+        self.file_list = ctk.CTkTextbox(self.left_frame, font=self.FONT_MONO, fg_color=list_bg_color, text_color=self.colors["FG"], border_width=1, border_color=self.colors["BORDER"])
+        self.file_list.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        self.file_list.configure(state="disabled")
+
+    def _setup_right_column(self):
+        self.right_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent", border_width=1, border_color=self.colors["BORDER"], corner_radius=0)
+        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        self.right_frame.grid_columnconfigure(0, weight=1)
+        self.right_frame.grid_rowconfigure(3, weight=1) # Tree expands
+
+        # Label
+        ctk.CTkLabel(self.right_frame, text=" [ CONFIGURATION ] ", font=self.FONT_MONO, text_color=self.colors["DIM"], fg_color=self.colors["BG"]).grid(row=0, column=0, sticky="nw", padx=10, pady=10)
+
+        # Settings Container (Fixed Height approx)
+        self.settings_container = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        self.settings_container.grid(row=1, column=0, sticky="nsew", padx=20, pady=0)
+        self.settings_container.grid_columnconfigure(0, weight=1)
+        
+        # Colors for inputs
+        input_fg = "#FFF" if self.current_theme == "light" else "#111111" # Background of inputs
+        input_txt = self.colors["FG"]
+
+        # 1. Output Format
+        ctk.CTkLabel(self.settings_container, text="TARGET FORM", font=("Consolas", 14, "bold"), text_color=self.colors["FG"], anchor="w").pack(fill="x", pady=(10, 5))
+        self.format_menu = ctk.CTkOptionMenu(
+            self.settings_container, 
+            variable=self.output_format, 
+            values=[],
+            fg_color=self.colors["BORDER"], button_color=self.colors["DIM"], button_hover_color=self.colors["BORDER"], text_color=self.colors["BG"], # Inverted for contrast
+            font=self.FONT_MONO, corner_radius=0
         )
-        self.log_box.pack(fill="x", padx=0, pady=(0, 10))
-        
-        # Progress bar
-        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=6)
-        self.progress_bar.pack(fill="x", padx=0, pady=(0, 5))
-        self.progress_bar.set(0)
-        
-        self.progress_label = ctk.CTkLabel(
-            self.progress_frame,
-            text="SYSTEM READY",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            text_color="gray50"
+        self.format_menu.pack(fill="x", pady=(0, 20))
+
+        # 2. Quality
+        ctk.CTkLabel(self.settings_container, text="QUALITY RATIO", font=("Consolas", 14, "bold"), text_color=self.colors["FG"], anchor="w").pack(fill="x", pady=(0, 5))
+        self.quality_var = tk.IntVar(value=90)
+        self.quality_slider = ctk.CTkSlider(
+            self.settings_container, 
+            from_=1, to=100, variable=self.quality_var, 
+            progress_color=self.colors["FG"], button_color=self.colors["FG"], button_hover_color=self.colors["BORDER"],
+            border_width=0
         )
-        self.progress_label.pack(anchor="w", padx=0, pady=(0, 0))
-    
-    def _select_category(self, category: ConversionCategory):
-        """Select a conversion category."""
-        self.current_category = category
+        self.quality_slider.pack(fill="x", pady=(0, 0))
+        self.quality_label = ctk.CTkLabel(self.settings_container, text="90%", font=self.FONT_MONO, text_color=self.colors["DIM"])
+        self.quality_label.pack(anchor="e")
+        self.quality_var.trace_add("write", lambda *_: self.quality_label.configure(text=f"{self.quality_var.get()}%"))
+
+        # 3. Output Path
+        ctk.CTkLabel(self.settings_container, text="DESTINATION VECTOR", font=("Consolas", 14, "bold"), text_color=self.colors["FG"], anchor="w").pack(fill="x", pady=(10, 5))
+        self.path_entry = ctk.CTkEntry(
+            self.settings_container, 
+            fg_color=self.colors["TERMINAL_BG"], border_color=self.colors["BORDER"], text_color=self.colors["FG"], 
+            font=self.FONT_MONO, corner_radius=0
+        )
+        self.path_entry.insert(0, str(self.output_dir))
+        self.path_entry.configure(state="readonly")
+        self.path_entry.pack(fill="x", pady=(0, 5))
         
-        # Update button states for Techy Look
-        for cat, btn in self.category_buttons.items():
-            if cat == category:
-                # Active: Accent color text, highlighted background
-                btn.configure(
-                    fg_color=("gray85", "gray20"),
-                    text_color=("#3B8ED0", "#1F6AA5"),
-                    font=ctk.CTkFont(family="Roboto Mono", size=13, weight="bold")
-                )
+        ctk.CTkButton(
+            self.settings_container, text="BROWSE...", 
+            command=self._browse_output_dir,
+            font=self.FONT_MONO, 
+            fg_color=self.colors["BORDER"], 
+            hover_color=self.colors["DIM"], 
+            text_color=self.colors["BG"], # contrast
+            corner_radius=0, width=100
+        ).pack(anchor="e")
+
+        # 4. Create Folder Option
+        self.folder_chk = ctk.CTkCheckBox(
+            self.settings_container,
+            text="ISOLATE IN FOLDERS",
+            variable=self.create_folders_var,
+            command=self._update_output_tree, 
+            font=("Consolas", 13),
+            text_color=self.colors["FG"],
+            fg_color=self.colors["BORDER"],
+            hover_color=self.colors["DIM"],
+            border_color=self.colors["BORDER"],
+            corner_radius=0
+        )
+        self.folder_chk.pack(fill="x", pady=(20, 0))
+
+        # 5. Output Tree Preview
+        ctk.CTkLabel(self.right_frame, text=" [ OUTPUT PREVIEW ] ", font=self.FONT_MONO, text_color=self.colors["DIM"], fg_color=self.colors["BG"]).grid(row=2, column=0, sticky="nw", padx=10, pady=(20, 10))
+        
+        list_bg_color = "#FFFFFF" if self.current_theme == "light" else "#111111"
+        self.tree_preview = ctk.CTkTextbox(
+            self.right_frame,
+            font=self.FONT_MONO,
+            fg_color=list_bg_color,
+            text_color=self.colors["DIM"],
+            border_width=0,
+            wrap="none" # Better for trees
+        )
+        self.tree_preview.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        self.tree_preview.configure(state="disabled")
+
+
+    def _on_tab_change(self, value):
+        # Update Tab Styling
+        for name, btn in self.tab_buttons.items():
+            if name == value:
+                # Active Tab: Highlighted
+                btn.configure(fg_color=self.colors["BORDER"], text_color=self.colors["BG"]) 
             else:
-                # Inactive: Gray text, transparent bg
-                btn.configure(
-                    fg_color="transparent",
-                    text_color=("gray40", "gray60"),
-                    font=ctk.CTkFont(family="Roboto Mono", size=13)
-                )
-        
-        # Update header
-        for icon, name, cat in self.CATEGORIES:
-            if cat == category:
-                self.category_title.configure(text=name) # Just name, tech style
+                # Inactive
+                btn.configure(fg_color="transparent", text_color=self.colors["DIM"])
+
+        # Find category object
+        for name, cat in self.CATEGORIES:
+            if name == value:
+                self.current_category = cat
                 break
         
-        # Get converter for category
-        converters = registry.get_converters(category)
-        if converters:
-            converter = converters[0]
-            formats = converter.supported_output_formats
-            self.output_format.set(formats[0] if formats else "")
-            self.format_menu.configure(values=formats)
-            
-            input_fmts = ", ".join(f".{f}" for f in converter.supported_input_formats[:7])
-            if len(converter.supported_input_formats) > 7:
-                input_fmts += "..."
-            self.category_subtitle.configure(text=f"INPUT: [{input_fmts}]")
-        
-        # Clear selected files
         self.selected_files.clear()
         self._update_file_list()
-    
-    def _update_dep_status(self):
-        """Update dependency status displays."""
-        deps = dependency_checker.check_all()
-        status_lines = []
         
-        for name, info in deps.items():
-            status = "ONLINE" if info.available else "OFFLINE"
-            # Using simple text indicators
-            icon = "[+]" if info.available else "[-]"
-            status_lines.append(f"{icon} {name.upper()}: {status}")
-        
-        self.dep_status.configure(text="\n".join(status_lines))
-    
-    def _toggle_theme(self):
-        """Toggle between dark and light mode."""
-        mode = self.theme_switch.get()
-        ctk.set_appearance_mode(mode)
-    
-    def _browse_files(self):
-        """Open file browser dialog."""
-        if not self.current_category:
-            return
-        
+        # Update settings for this category
         converters = registry.get_converters(self.current_category)
-        if not converters:
-            return
+        if converters:
+            conv = converters[0]
+            fmts = conv.supported_output_formats
+            self.output_format.set(fmts[0] if fmts else "")
+            self.format_menu.configure(values=fmts)
+            
+            self.format_menu.configure(values=fmts)
+            
+            # Show supported inputs in log
+            inputs = ", ".join(conv.supported_input_formats[:5])
+            self._log(f"SWITCHED TO {value}. SUPPORTS: {inputs}...")
+            
+            self._update_output_tree() # Refresh tree
+            self._update_button_state()
+
+    def _log(self, msg):
+        timestamp = time.strftime("%H:%M:%S")
+        self.log_box.configure(state="normal")
+        self.log_box.insert("end", f"[{timestamp}] {msg}\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    def _on_progress_log(self, progress, message):
+        """Callback for converter progress."""
+        if message:
+            # Don't show timestamp for these intermediate logs to keep it cleaner? 
+            # User asked for: "filename.png ...done!"
+            # Let's keep it simple and just log the message. 
+            # We can use _log to keep consistency or direct insert.
+            # Let's use direct insert for "list" style or _log for consistency.
+            # _log adds a new line.
+            self._log(message)
+
+    def _update_output_tree(self, *args):
+        """Update the output tree preview based on settings."""
+        self.tree_preview.configure(state="normal")
+        self.tree_preview.delete("0.0", "end")
         
-        # Build file type filter
-        extensions = converters[0].supported_input_formats
-        file_types = [("Supported files", " ".join(f"*.{ext}" for ext in extensions))]
+        if not self.selected_files:
+            self.tree_preview.insert("end", "\n[NO FILES SELECTED]")
+        else:
+            fmt = self.output_format.get().lower() or "fmt"
+            for f in self.selected_files[:5]: # Limit preview
+                if self.create_folders_var.get():
+                    self.tree_preview.insert("end", f"📂 {f.stem}/\n")
+                    self.tree_preview.insert("end", f" └── 📄 {f.stem}.{fmt}\n")
+                else:
+                    self.tree_preview.insert("end", f"📄 {f.stem}.{fmt}\n")
+            
+            if len(self.selected_files) > 5:
+                self.tree_preview.insert("end", f"... (+{len(self.selected_files)-5} more)")
+                
+        self.tree_preview.configure(state="disabled")
+
+    def _update_button_state(self):
+        """Update start button appearance based on validity."""
+        if self.selected_files and self.output_format.get():
+            self.convert_btn.configure(
+                state="normal", 
+                fg_color=self.colors["BUTTON_FG"], 
+                text_color=self.colors["BUTTON_TEXT"]
+            )
+        else:
+            self.convert_btn.configure(state="disabled", fg_color=self.colors["BORDER"], text_color=self.colors["DIM"]) # Dimmed
+
+    def _browse_files(self):
+        if not self.current_category: return
+        converters = registry.get_converters(self.current_category)
+        if not converters: return
         
+        exts = converters[0].supported_input_formats
+        file_types = [("Supported", " ".join(f"*.{ext}" for ext in exts))]
         files = filedialog.askopenfilenames(filetypes=file_types)
         if files:
             self.selected_files = [Path(f) for f in files]
             self._update_file_list()
-    
-    def _browse_output_dir(self):
-        """Browse for output directory."""
-        dir_path = filedialog.askdirectory(initialdir=self.output_dir)
-        if dir_path:
-            self.output_dir = Path(dir_path)
-            self._update_dir_display()
-    
-    def _update_dir_display(self):
-        """Update the output directory display."""
-        self.dir_entry.configure(state="normal")
-        self.dir_entry.delete(0, "end")
-        self.dir_entry.insert(0, str(self.output_dir))
-        self.dir_entry.configure(state="readonly")
-    
+            self._update_output_tree() # Refresh tree
+            self._update_button_state() # Check valid
+            self._log(f"LOADED {len(files)} FILE(S).")
+
     def _update_file_list(self):
-        """Update the file list display."""
         self.file_list.configure(state="normal")
         self.file_list.delete("0.0", "end")
-        
         if self.selected_files:
             for f in self.selected_files:
                 self.file_list.insert("end", f"> {f.name}\n")
-            self.drop_label.configure(text=f"{len(self.selected_files)} FILE(S) LOADED")
-            self.drop_sublabel.configure(text="Click to add more")
+            self.drop_label.configure(text=f"{len(self.selected_files)} FILES READY")
         else:
-            self.drop_label.configure(text="DROP FILES HERE")
-            self.drop_sublabel.configure(text="or click to browse")
-        
+            self.drop_label.configure(text="DRAG FILES HERE")
         self.file_list.configure(state="disabled")
-    
+
     def _on_drop(self, event):
-        """Handle file drop."""
         if DND_AVAILABLE:
             files = self.tk.splitlist(event.data)
-            self.selected_files.extend(Path(f) for f in files if Path(f).is_file())
+            valid = [Path(f) for f in files if Path(f).is_file()]
+            self.selected_files.extend(valid)
             self._update_file_list()
-    
-    def _log(self, message: str):
-        """Log a message to the log box."""
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", f"{message}\n")
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
-    
+            self._update_output_tree() # Refresh tree
+            self._update_button_state() # Check valid
+            self._log(f"DROPPED {len(valid)} FILE(S).")
+
+    def _browse_output_dir(self):
+        d = filedialog.askdirectory(initialdir=self.output_dir)
+        if d:
+            self.output_dir = Path(d)
+            self.path_entry.configure(state="normal")
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, str(d))
+            self.path_entry.configure(state="readonly")
+
     def _start_conversion(self):
-        """Start the conversion process."""
         if not self.selected_files:
-            messagebox.showwarning("No Files", "Please select files to convert.")
+            self._log("ERROR: NO FILES SELECTED.")
             return
-        
-        if not self.output_format.get():
-            messagebox.showwarning("No Format", "Please select an output format.")
-            return
-        
-        if self.is_converting:
-            return
-        
+        if self.is_converting: return
+
         self.is_converting = True
         self.convert_btn.configure(state="disabled", text="PROCESSING...")
+        self.led.set_state("running")
         
-        # Run conversion in background thread
-        thread = threading.Thread(target=self._convert_files, daemon=True)
-        thread.start()
-    
-    def _convert_files(self):
-        """Convert files in background thread."""
+        threading.Thread(target=self._run_conversion, daemon=True).start()
+
+    def _run_conversion(self):
         try:
-            converter = registry.find_converter(
-                self.selected_files[0].suffix.lstrip('.'),
-                self.output_format.get()
-            )
+            self._log("INITIALIZING BATCH JOB...")
+            converter = registry.find_converter(self.selected_files[0].suffix.lstrip('.'), self.output_format.get())
             
             if not converter:
-                self.after(0, lambda: self._log("[!] No suitable converter found"))
+                self._log("ERROR: NO SUITABLE CONVERTER FOUND.")
+                self.after(0, self._on_finish, "error")
                 return
+
+            # Hook up detailed logging
+            converter.set_progress_callback(self._on_progress_log)
+
+            base_opts = ConversionOptions(output_dir=self.output_dir, quality=self.quality_var.get(), overwrite=True)
             
-            options = ConversionOptions(
-                output_dir=self.output_dir,
-                quality=self.quality_var.get(),
-                overwrite=True
-            )
-            
-            total = len(self.selected_files)
-            for i, file_path in enumerate(self.selected_files):
-                progress = i / total
-                self.after(0, lambda p=progress: self.progress_bar.set(p))
-                self.after(0, lambda f=file_path.name: self.progress_label.configure(
-                    text=f"PROCESSING: {f}"
-                ))
+            for f in self.selected_files:
+                opts = copy.copy(base_opts)
+                if self.create_folders_var.get():
+                    opts.output_dir = base_opts.output_dir / f.stem
+                    # Create directory immediately to be safe, though most converters do it
+                    try: opts.output_dir.mkdir(exist_ok=True)
+                    except: pass
                 
-                result = converter.convert(file_path, self.output_format.get(), options)
-                
-                if result.success:
-                    self.after(0, lambda r=result: self._log(f"[OK] {r.input_path.name}"))
+                self._log(f"CONVERTING: {f.name} -> {self.output_format.get().upper()}...")
+                res = converter.convert(f, self.output_format.get(), opts)
+                if res.success:
+                    self._log(f"SUCCESS: {f.name}")
                 else:
-                    self.after(0, lambda r=result: self._log(f"[FAIL] {r.input_path.name}: {r.error_message}"))
+                    self._log(f"FAIL: {f.name} - {res.error_message}")
             
-            self.after(0, lambda: self.progress_bar.set(1.0))
-            self.after(0, lambda: self.progress_label.configure(text="OPERATION COMPLETE"))
-            self.after(0, lambda: self._log(f"--- Completed {total} file(s) ---"))
-            
+            self._log("JOB COMPLETE.")
+            self.after(0, self._on_finish, "ready")
+
         except Exception as e:
-            self.after(0, lambda: self._log(f"[ERROR] {e}"))
-        finally:
-            self.after(0, self._conversion_complete)
-    
-    def _conversion_complete(self):
-        """Called when conversion is complete."""
+            self._log(f"CRITICAL ERROR: {e}")
+            self.after(0, self._on_finish, "error")
+
+    def _on_finish(self, state="idle"):
         self.is_converting = False
-        self.convert_btn.configure(state="normal", text="INITIALIZE CONVERSION")
+        self.convert_btn.configure(state="normal", text="> EXECUTE CONVERSION")
+        self.led.set_state(state)
 
 
 if __name__ == "__main__":

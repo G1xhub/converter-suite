@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Build script to create EXE from PPTX to Picture Converter
+Build script to create EXE from Converter Suite
 """
 import os
 import subprocess
@@ -24,7 +24,7 @@ def clean_build():
 def build_exe():
     """Build EXE using PyInstaller"""
     print("\n" + "="*50)
-    print("Building PPTX_to_Picture.exe")
+    print("Building Converter_Suite.exe")
     print("="*50 + "\n")
     
     # Check if PyInstaller is installed
@@ -45,13 +45,13 @@ def build_exe():
         'pyinstaller',
         '--onefile',
         '--windowed',
-        '--name=PPTX_to_Picture',
+        '--name=Converter_Suite',
         '--hidden-import=tkinterdnd2',
         '--hidden-import=pdf2image',
         '--hidden-import=svgwrite',
         '--hidden-import=PIL._tkinter_finder',
         '--noconfirm',
-        'pptx_to_picture.py'
+        'converter_suite.py'
     ]
     
     result = subprocess.run(cmd, capture_output=False)
@@ -61,7 +61,7 @@ def build_exe():
         sys.exit(1)
     
     # Check if EXE was created
-    exe_path = os.path.join('dist', 'PPTX_to_Picture.exe')
+    exe_path = os.path.join('dist', 'Converter_Suite.exe')
     if os.path.exists(exe_path):
         size_mb = os.path.getsize(exe_path) / (1024 * 1024)
         print(f"\n" + "="*50)
