@@ -74,6 +74,40 @@ class LEDIndicator(ctk.CTkCanvas):
         self.create_oval(pad, pad, self.width-pad, self.height-pad, fill=color, outline="")
 
 
+class DashedDropZone(ctk.CTkCanvas):
+    """A drop zone with a dashed border."""
+    def __init__(self, master, fg_color, border_color, text_color, command=None, **kwargs):
+        super().__init__(master, bg=fg_color, highlightthickness=0, **kwargs)
+        self.fg_color = fg_color
+        self.border_color = border_color
+        self.text_color = text_color
+        self.command = command
+        self.text = "DRAG FILES HERE"
+        
+        self.bind('<Configure>', self._draw)
+        self.bind('<Button-1>', self._on_click)
+        
+    def configure_text(self, text):
+        self.text = text
+        self._draw()
+        
+    def _draw(self, event=None):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        
+        # Draw dashed border
+        self.create_rectangle(3, 3, w-3, h-3, outline=self.border_color, dash=(15, 10), width=3)
+        
+        # Draw text
+        self.create_text(w/2, h/2, text=self.text, font=("Consolas", 20, "bold"), fill=self.text_color)
+        if self.text == "DRAG FILES HERE":
+             self.create_text(w/2, h/2 + 30, text="(or click to browse)", font=("Consolas", 12), fill=self.text_color)
+    
+    def _on_click(self, event):
+        if self.command:
+            self.command()
+
+
 class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.CTk, TkinterDnD.DnDWrapper), {})):
     """
     Main application window for Converter Suite.
@@ -92,6 +126,7 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
             "TERMINAL_TEXT": "#00FF00",
             "BUTTON_FG": "white",
             "BUTTON_TEXT": "black",
+            "PANEL_BG": "#080808", # Slightly lighter than black background
         },
         "light": {
             "BG": "#F5F1E6",          # Oatmeal / Earthy Beige
@@ -103,6 +138,7 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
             "TERMINAL_TEXT": "#E8C547", # Amber/Gold for terminal text
             "BUTTON_FG": "#3E3B36",   # Dark for button
             "BUTTON_TEXT": "#F5F1E6", # Light text
+            "PANEL_BG": "#E8E4D9",    # Distinct panel background for light mode
         }
     }
 
@@ -322,19 +358,17 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         ctk.CTkLabel(self.left_frame, text=" [ INPUT SOURCE ] ", font=self.FONT_MONO, text_color=self.colors["DIM"], fg_color=self.colors["BG"]).grid(row=0, column=0, sticky="nw", padx=10, pady=10)
 
         # Drop Zone (Limited Height)
-        # For Drop Zone BG in Light Mode, we need something distinct but not black
-        drop_bg_color = "#E8E4D9" if self.current_theme == "light" else "#080808"
-        
-        self.drop_zone = ctk.CTkFrame(self.left_frame, fg_color=drop_bg_color, border_width=2, border_color=self.colors["BORDER"], corner_radius=0, height=200) # Fixed height hint
+        # Use our custom Dashed wiget
+        self.drop_zone = DashedDropZone(
+            self.left_frame, 
+            fg_color=self.colors["PANEL_BG"], 
+            border_color=self.colors["BORDER"], 
+            text_color=self.colors["DIM"],
+            command=self._browse_files,
+            height=200
+        )
         self.drop_zone.grid(row=1, column=0, sticky="ew", padx=20, pady=20)
         self.drop_zone.grid_propagate(False) # Enforce height
-        
-        self.drop_label = ctk.CTkLabel(self.drop_zone, text="DRAG FILES HERE", font=("Consolas", 19, "bold"), text_color=self.colors["DIM"])
-        self.drop_label.place(relx=0.5, rely=0.5, anchor="center")
-        
-        # Click to browse
-        self.drop_zone.bind("<Button-1>", lambda e: self._browse_files())
-        self.drop_label.bind("<Button-1>", lambda e: self._browse_files())
         
         if DND_AVAILABLE:
             self.drop_zone.drop_target_register(DND_FILES)
@@ -344,9 +378,14 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         self.file_list_label = ctk.CTkLabel(self.left_frame, text="SELECTED FILES:", font=self.FONT_MONO, text_color=self.colors["DIM"], anchor="w")
         self.file_list_label.grid(row=2, column=0, sticky="w", padx=20, pady=(0,5))
 
-        list_bg_color = "#FFFFFF" if self.current_theme == "light" else "#080808"
-
-        self.file_list = ctk.CTkTextbox(self.left_frame, font=self.FONT_MONO, fg_color=list_bg_color, text_color=self.colors["FG"], border_width=1, border_color=self.colors["BORDER"])
+        self.file_list = ctk.CTkTextbox(
+            self.left_frame, 
+            font=self.FONT_MONO, 
+            fg_color=self.colors["PANEL_BG"], 
+            text_color=self.colors["FG"], 
+            border_width=1, 
+            border_color=self.colors["BORDER"]
+        )
         self.file_list.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 20))
         self.file_list.configure(state="disabled")
 
@@ -432,11 +471,10 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         # 5. Output Tree Preview
         ctk.CTkLabel(self.right_frame, text=" [ OUTPUT PREVIEW ] ", font=self.FONT_MONO, text_color=self.colors["DIM"], fg_color=self.colors["BG"]).grid(row=2, column=0, sticky="nw", padx=10, pady=(20, 10))
         
-        list_bg_color = "#FFFFFF" if self.current_theme == "light" else "#111111"
         self.tree_preview = ctk.CTkTextbox(
             self.right_frame,
             font=self.FONT_MONO,
-            fg_color=list_bg_color,
+            fg_color=self.colors["PANEL_BG"],
             text_color=self.colors["DIM"],
             border_width=0,
             wrap="none" # Better for trees
@@ -552,9 +590,9 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         if self.selected_files:
             for f in self.selected_files:
                 self.file_list.insert("end", f"> {f.name}\n")
-            self.drop_label.configure(text=f"{len(self.selected_files)} FILES READY")
+            self.drop_zone.configure_text(f"{len(self.selected_files)} FILES READY")
         else:
-            self.drop_label.configure(text="DRAG FILES HERE")
+            self.drop_zone.configure_text("DRAG FILES HERE")
         self.file_list.configure(state="disabled")
 
     def _on_drop(self, event):
