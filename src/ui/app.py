@@ -33,6 +33,7 @@ from ..converters.video_converter import VideoConverter
 from ..converters.audio_converter import AudioConverter
 from ..converters.document_converter import DocumentConverter
 from ..converters.presentation_converter import PresentationConverter
+from ..converters.ebook_converter import EbookConverter
 from ..utils.dependency_checker import dependency_checker
 
 logger = logging.getLogger(__name__)
@@ -215,8 +216,8 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         self._setup_ui()
         
         # Restore tab state
-        cat_name = "DOCS"
-        for name, cat in self.CATEGORIES:
+        cat_name = "DOCUMENTS"
+        for icon, name, cat in self.CATEGORIES:
              if cat == self.current_category:
                  cat_name = name
                  break
@@ -253,10 +254,10 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         self.tabs_container.grid(row=0, column=1, sticky="ew", padx=40)
         
         self.tab_buttons = {} # Reset
-        for name, cat in self.CATEGORIES:
+        for icon, name, cat in self.CATEGORIES:
             btn = ctk.CTkButton(
                 self.tabs_container,
-                text=name,
+                text=f"{icon} {name}",
                 font=self.FONT_HEADER,
                 width=120,
                 height=35,
@@ -497,7 +498,7 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
                 btn.configure(fg_color="transparent", text_color=self.colors["DIM"])
 
         # Find category object
-        for name, cat in self.CATEGORIES:
+        for icon, name, cat in self.CATEGORIES:
             if name == value:
                 self.current_category = cat
                 break
