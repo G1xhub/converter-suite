@@ -148,11 +148,12 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
     FONT_BUTTON = ("Consolas", 16, "bold") 
     
     CATEGORIES = [
-        ("DOCS", ConversionCategory.DOCUMENT),
-        ("IMAGES", ConversionCategory.IMAGE),
-        ("VIDEO", ConversionCategory.VIDEO),
-        ("AUDIO", ConversionCategory.AUDIO),
-        ("PRESENTATIONS", ConversionCategory.PRESENTATION),
+        ("📄", "DOCUMENTS", ConversionCategory.DOCUMENT),
+        ("🖼️", "IMAGES", ConversionCategory.IMAGE),
+        ("🎬", "VIDEO", ConversionCategory.VIDEO),
+        ("🎵", "AUDIO", ConversionCategory.AUDIO),
+        ("📊", "PRESENTATIONS", ConversionCategory.PRESENTATION),
+        ("📚", "EBOOKS", ConversionCategory.EBOOK),
     ]
     
     def __init__(self):
@@ -185,15 +186,17 @@ class ConverterApp(ctk.CTk if not DND_AVAILABLE else type('ConverterApp', (ctk.C
         self._setup_ui()
         
         # Select first category
-        self._on_tab_change("DOCS")
+        self._on_tab_change("DOCUMENTS")
 
     def _register_converters(self):
+        """Register all available converters."""
         registry.clear()
         registry.register(ImageConverter())
         registry.register(VideoConverter())
         registry.register(AudioConverter())
         registry.register(DocumentConverter())
         registry.register(PresentationConverter())
+        registry.register(EbookConverter())
 
     def _toggle_theme(self):
         """Switch between dark and light themes."""

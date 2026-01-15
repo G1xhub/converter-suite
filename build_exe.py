@@ -1,93 +1,67 @@
-# -*- coding: utf-8 -*-
 """
-Build script to create EXE from Converter Suite
+Build Script for Converter Suite
+Uses PyInstaller to create a standalone executable.
 """
-import os
-import subprocess
+
+import PyInstaller.__main__
 import shutil
-import sys
+import os
+from pathlib import Path
 
-def clean_build():
-    """Clean build directories"""
-    print("Cleaning build directories...")
-    
-    dirs_to_clean = ['build', 'dist']
-    for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
-            print(f"  Removing {dir_name}...")
-            shutil.rmtree(dir_name, ignore_errors=True)
-    
-    # Clean pycache
-    if os.path.exists('__pycache__'):
-        shutil.rmtree('__pycache__', ignore_errors=True)
+# Configuration
+APP_NAME = "ConverterSuite"
+MAIN_SCRIPT = "main.py"
+ICON_FILE = "src/assets/icon.ico"  # Optional, if you have one
+ADDITIONAL_DATA = [
+    # CustomTkinter data
+    ('c:/Users/jgrae/AppData/Local/Programs/Python/Python313/Lib/site-packages/customtkinter', 'customtkinter/'),
+    # Add source code if needed (usually not needed if imported)
+    ('src', 'src'),
+]
 
-def build_exe():
-    """Build EXE using PyInstaller"""
-    print("\n" + "="*50)
-    print("Building Converter_Suite.exe")
-    print("="*50 + "\n")
+# Check if deps folder exists and bundle it
+DEPS_DIR = Path("deps")
+if DEPS_DIR.exists():
+    ADDITIONAL_DATA.append(('deps', 'deps'))
+
+def build():
+    """Run PyInstaller build."""
     
-    # Check if PyInstaller is installed
-    try:
-        import PyInstaller
-        print(f"[OK] PyInstaller found: {PyInstaller.__version__}")
-    except ImportError:
-        print("[ERROR] PyInstaller not found!")
-        print("Install with: pip install pyinstaller")
-        sys.exit(1)
+    # Clean previous builds
+    shutil.rmtree('build', ignore_errors=True)
+    shutil.rmtree('dist', ignore_errors=True)
     
-    # Clean first
-    clean_build()
-    
-    # Build with PyInstaller
-    print("\nBuilding EXE...")
-    cmd = [
-        'pyinstaller',
-        '--onefile',
-        '--windowed',
-        '--name=Converter_Suite',
-        '--hidden-import=tkinterdnd2',
-        '--hidden-import=pdf2image',
-        '--hidden-import=svgwrite',
-        '--hidden-import=PIL._tkinter_finder',
+    # Common arguments
+    args = [
+        MAIN_SCRIPT,
+        f'--name={APP_NAME}',
         '--noconfirm',
-        'converter_suite.py'
+        '--windowed',  # No console window
+        '--clean',
+        
+        # Imports
+        '--hidden-import=PIL._tkinter_finder',
+        '--hidden-import=tkinterdnd2',
+        '--hidden-import=customtkinter',
+        '--hidden-import=pypdf2',
+        '--hidden-import=reportlab',
+        
+        # Data
+        '--collect-all=customtkinter',
+        '--collect-all=tkinterdnd2',
     ]
     
-    result = subprocess.run(cmd, capture_output=False)
+    # Add bundled data
+    for src, dst in ADDITIONAL_DATA:
+        # Check if src is absolute or relative
+        # PyInstaller expects: src;dst (Windows) or src:dst (Unix)
+        # We let collect-all handle ctk, but explicit adds here:
+        if src == 'deps' and Path(src).exists():
+             args.append(f'--add-data={src}{os.pathsep}{dst}')
     
-    if result.returncode != 0:
-        print("\n[ERROR] Build failed!")
-        sys.exit(1)
-    
-    # Check if EXE was created
-    exe_path = os.path.join('dist', 'Converter_Suite.exe')
-    if os.path.exists(exe_path):
-        size_mb = os.path.getsize(exe_path) / (1024 * 1024)
-        print(f"\n" + "="*50)
-        print(f"[SUCCESS] EXE created!")
-        print(f"[PATH] {exe_path}")
-        print(f"[SIZE] {size_mb:.1f} MB")
-        print("="*50 + "\n")
-        
-        # Ask if user wants to test
-        print("Would you like to test the EXE now? (y/n)")
-        # Uncomment to enable testing:
-        # response = input().strip().lower()
-        # if response == 'y':
-        #     subprocess.run([exe_path])
-    else:
-        print("\n[ERROR] EXE not found in dist/ folder!")
-        sys.exit(1)
+    print("Building Converter Suite...")
+    PyInstaller.__main__.run(args)
+    print("Build complete! Check ./dist folder.")
 
-if __name__ == '__main__':
-    try:
-        build_exe()
-    except KeyboardInterrupt:
-        print("\n\nBuild cancelled by user.")
-        sys.exit(0)
-    except Exception as e:
-        print(f"\n[ERROR] {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+if __name__ == "__main__":
+    build()

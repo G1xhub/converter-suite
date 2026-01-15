@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import platform
+import sys
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
@@ -38,7 +39,13 @@ class DependencyChecker:
         Args:
             app_dir: Root directory of the application (for bundled deps)
         """
-        self.app_dir = app_dir or Path(__file__).parent.parent.parent
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            self.app_dir = Path(sys.executable).parent
+        else:
+            # Running from source
+            self.app_dir = app_dir or Path(__file__).parent.parent.parent
+            
         self.deps_dir = self.app_dir / "deps"
         self.system = platform.system().lower()  # 'windows', 'darwin', 'linux'
         
@@ -66,7 +73,8 @@ class DependencyChecker:
                 [str(executable)] + args,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if self.system == 'windows' else 0
             )
             output = result.stdout or result.stderr
             # Extract first line as version info
@@ -78,13 +86,14 @@ class DependencyChecker:
     
     def _find_in_bundled(self, name: str) -> Optional[Path]:
         """Look for bundled dependency."""
+        # Check standard structure: deps/name/platform/exe
         platform_dir = self.deps_dir / name / self._get_platform_subdir()
         executable = platform_dir / self._get_executable_name(name)
         
         if executable.exists() and executable.is_file():
             return executable
         
-        # Also check direct in deps folder
+        # Also check direct in deps folder: deps/name/exe
         executable = self.deps_dir / name / self._get_executable_name(name)
         if executable.exists():
             return executable
