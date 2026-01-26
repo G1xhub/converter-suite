@@ -1,22 +1,27 @@
 # Converter Suite Pro
 
-**Version:** 0.1.3  
+**Version:** 0.1.4  
 **Developer:** graeLabs
 
-Universal file converter supporting documents, images, video, audio, and presentations with a modern, tech-focused interface.
+Universal file converter supporting documents, images, video, audio, eBooks, and presentations with a modern, tech-focused interface.
 
-![Converter Suite UI](https://placehold.co/800x500?text=Converter+Suite+Pro+Preview)
+````carousel
+![Dark Mode](public/darkmode.png)
+<!-- slide -->
+![Light Mode](public/lightmode.png)
+````
 
 ## Features
 
 - **Cross-Platform**: Runs on Windows, macOS, and Linux.
-- **Techy UI**: Modern "Core Converter" interface with dark mode and monospace typography.
-- **50+ Format Conversions**:
-    - **Documents**: DOCX, PDF, TXT, MD, HTML, RTF
-    - **Images**: PNG, JPG, WebP, BMP, GIF, TIFF
-    - **Video**: MP4, MKV, AVI, MOV, WebM, FLV
-    - **Audio**: MP3, WAV, FLAC, OGG, M4A
-    - **Presentations**: PPTX, PPT, ODP -> PDF, Images
+- **Improved UI**: Modern interface with full Dark Mode and Light Mode support.
+- **100+ Format Conversions**:
+    - **Documents**: DOCX, PDF, TXT, MD, HTML, RTF, ODT, EPUB, TEX, RST, ORG
+    - **Images**: PNG, JPG, WebP, BMP, GIF, TIFF, ICO
+    - **Video**: MP4, MKV, AVI, MOV, WebM, FLV, WMV, M4V, 3GP
+    - **Audio**: MP3, WAV, FLAC, OGG, M4A, AAC, OPUS, WMA (extraction from video included)
+    - **eBooks**: EPUB, DOCX, ODT, TXT, MD, HTML, RTF, TEX -> EPUB, PDF, DOCX, TXT, HTML, MD
+    - **Presentations**: PPTX, PPT, ODP, PPSX, PPS -> PDF, PNG, JPG, ODP, PPTX
 - **Modular Architecture**: Backend support for industry-standard tools (FFmpeg, LibreOffice, Pandoc).
 - **Drag & Drop**: Easy batch processing with drag-and-drop support.
 
@@ -37,7 +42,7 @@ Universal file converter supporting documents, images, video, audio, and present
    For full functionality, ensure the following are installed (or placed in a `./deps` folder):
    - **FFmpeg**: Required for Video/Audio conversion.
    - **LibreOffice**: Required for Presentation/Document conversion.
-   - **Pandoc**: Required for advanced Document formats.
+   - **Pandoc**: Required for advanced Document/eBook formats.
 
 ## Usage
 
@@ -50,11 +55,12 @@ python main.py
 
 | Category | Input Formats | Export Formats | Backend |
 |----------|---------------|----------------|---------|
-| **Documents** | DOCX, ODT, TXT, MD, HTML, RTF | PDF, DOCX, MD, HTML, TXT | Pandoc / LibreOffice |
-| **Images** | PNG, JPG, BMP, WebP, TIFF | PNG, JPG, WebP, GIF, TIFF, ICO | Pillow |
-| **Video** | MP4, MKV, AVI, MOV, WebM | MP4, WebM, MKV, AVI, GIF | FFmpeg |
-| **Audio** | MP3, WAV, FLAC, OGG, M4A | MP3, WAV, FLAC, OGG, M4A | FFmpeg |
-| **Presentations** | PPTX, PPT, ODP | PDF, PNG, JPG | LibreOffice |
+| **Documents** | DOCX, DOC, ODT, TXT, MD, HTML, RTF, EPUB, TEX, RST | PDF, DOCX, ODT, MD, HTML, TXT, RTF, EPUB, TEX | Pandoc / LibreOffice |
+| **Images** | PNG, JPG, BMP, WebP, TIFF, ICO, GIF | PNG, JPG, WebP, GIF, TIFF, ICO | Pillow |
+| **Video** | MP4, MKV, AVI, MOV, WebM, FLV, WMV, M4V, 3GP | MP4, WebM, MKV, AVI, MOV, GIF | FFmpeg |
+| **Audio** | MP3, WAV, FLAC, OGG, M4A, AAC, OPUS, WMA | MP3, WAV, FLAC, OGG, M4A, AAC, OPUS | FFmpeg |
+| **eBooks** | EPUB, DOCX, ODT, TXT, MD, HTML, RTF, TEX | EPUB, PDF, DOCX, TXT, HTML, MD | Pandoc |
+| **Presentations** | PPTX, PPT, ODP, PPSX, PPS | PDF, PNG, JPG, ODP, PPTX | PowerPoint / LibreOffice |
 
 ## License
 

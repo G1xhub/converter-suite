@@ -70,3 +70,6 @@ Desktop.ini
 # Project specific
 *.exe
 !requirements.txt
+
+# Misc
+public/
