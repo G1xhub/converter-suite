@@ -5,11 +5,11 @@
 
 Universal file converter supporting documents, images, video, audio, eBooks, and presentations with a modern, tech-focused interface.
 
-````carousel
-![Dark Mode](public/darkmode.png)
-<!-- slide -->
-![Light Mode](public/lightmode.png)
-````
+### UI Preview
+
+| Dark Mode | Light Mode |
+|-----------|------------|
+| ![Dark Mode](public/darkmode.png) | ![Light Mode](public/lightmode.png) |
 
 ## Features
 
