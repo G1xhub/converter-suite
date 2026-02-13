@@ -38,6 +38,7 @@ def build():
         '--noconfirm',
         '--windowed',  # No console window
         '--clean',
+        f'--icon={ICON_FILE}',
         
         # Imports
         '--hidden-import=PIL._tkinter_finder',
