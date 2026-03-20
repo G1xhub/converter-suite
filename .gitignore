@@ -73,3 +73,7 @@ Desktop.ini
 
 # Misc
 
+# Inno Setup
+Output/
+# Intermediate Assets
+src/assets/*.png
